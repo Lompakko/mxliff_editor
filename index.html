@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mxliff 编辑器</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mxliff">
+<meta name="theme-color" content="#1f5f8b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one sticky toolbar, then a single column of segment rows — status gutter | source | target — like a bilingual galley proof. */
+:root {
+  --paper: #f3f5f7;
+  --surface: #ffffff;
+  --ink: #18222d;
+  --muted: #5f6d7a;
+  --line: #d5dbe1;
+  --accent: #1f5f8b;
+  --accent-soft: #e2eef6;
+  --ok: #2e7d5b;
+  --ok-soft: #e0f1e9;
+  --warn: #a35a00;
+  --warn-soft: #fbefd9;
+  --tag: #6b4fa3;
+  --tag-soft: #ece6f6;
+  --font-ui: "IBM Plex Sans", -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12181e; --surface: #1b232b; --ink: #e6ecf1; --muted: #93a1ae; --line: #2f3a45;
+    --accent: #6fb3e0; --accent-soft: #1d3345; --ok: #5cc097; --ok-soft: #183428;
+    --warn: #e5a54b; --warn-soft: #3a2c14; --tag: #b9a2e6; --tag-soft: #2b2540;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12181e; --surface: #1b232b; --ink: #e6ecf1; --muted: #93a1ae; --line: #2f3a45;
+  --accent: #6fb3e0; --accent-soft: #1d3345; --ok: #5cc097; --ok-soft: #183428;
+  --warn: #e5a54b; --warn-soft: #3a2c14; --tag: #b9a2e6; --tag-soft: #2b2540;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: var(--font-ui); font-size: 16px; line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+.app { display: flex; flex-direction: column; height: 100%; }
+.bar {
+  flex: none; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.file { display: flex; flex-direction: column; min-width: 0; flex: 1 1 220px; }
+.file-name { font-weight: 600; overflow-wrap: anywhere; line-height: 1.3; }
+.file-meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.progress { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 4px; max-width: 320px; }
+.progress > i { display: block; height: 100%; background: var(--ok); width: 0; }
+.btn {
+  min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); font-weight: 500; white-space: nowrap;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn.small { min-height: 32px; padding: 0 10px; font-size: 14px; }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--accent); }
+.search { flex: 1 1 200px; min-width: 0; min-height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); }
+.seg-control { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg-control button { min-height: 40px; padding: 0 12px; border: 0; background: var(--surface); border-right: 1px solid var(--line); font-size: 14px; white-space: nowrap; }
+.seg-control button:last-child { border-right: 0; }
+.seg-control button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.seg-control .n { font-variant-numeric: tabular-nums; color: var(--muted); margin-left: 4px; font-weight: 400; }
+.replace-row input { flex: 1 1 160px; min-width: 0; min-height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); }
+
+.notice { margin: 12px 16px 0; padding: 10px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.notice span { flex: 1 1 240px; }
+
+.list { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 16px 80px; display: flex; flex-direction: column; gap: 8px; }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+
+.seg {
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 8px;
+  display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1fr); gap: 0 14px; padding: 12px 14px 10px 8px;
+}
+.seg.confirmed { border-left-color: var(--ok); }
+.seg.modified { border-left-color: var(--accent); }
+.seg.locked { opacity: .75; }
+.gutter { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.num { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.confirm {
+  width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--line); background: var(--surface);
+  display: grid; place-items: center; font-size: 18px; color: transparent; padding: 0;
+}
+.seg.confirmed .confirm { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.confirm:disabled { cursor: default; }
+.src { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; line-height: 1.6; padding-top: 6px; }
+.src .nl, .src .tagm { font-family: var(--font-mono); font-size: 13px; }
+.src .nl { color: var(--muted); opacity: .7; }
+.tagm { color: var(--tag); background: var(--tag-soft); border-radius: 4px; padding: 0 3px; }
+.src mark { background: transparent; color: inherit; border-bottom: 2px solid var(--accent); }
+.col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.grow { display: grid; }
+.grow::after { content: attr(data-v) " "; visibility: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.grow > textarea, .grow::after {
+  grid-area: 1 / 1; font: inherit; font-size: 17px; line-height: 1.6; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; min-width: 0;
+}
+.grow > textarea { resize: none; overflow: hidden; background: var(--paper); color: var(--ink); border-color: var(--line); width: 100%; }
+.grow > textarea:focus { background: var(--surface); border-color: var(--accent); outline: none; }
+.grow > textarea[readonly] { background: transparent; border-style: dashed; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { font-size: 13px; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); line-height: 1.5; }
+.chip.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn); }
+.chip.info { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+button.chip.term { color: var(--ink); min-height: 30px; }
+button.chip.term.used { color: var(--ok); border-color: var(--ok); }
+button.chip.tagbtn { font-family: var(--font-mono); color: var(--tag); background: var(--tag-soft); border-color: transparent; min-height: 30px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; }
+.meta .count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tools { display: flex; gap: 2px; margin-left: auto; }
+.detail { grid-column: 2 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.detail dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; }
+.detail dt { color: var(--muted); }
+.detail dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail .key { font-family: var(--font-mono); font-size: 13px; }
+.alt { display: flex; gap: 8px; align-items: flex-start; }
+.alt p { margin: 0; flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.more { align-self: center; }
+
+@media (max-width: 720px) {
+  .seg { grid-template-columns: 48px minmax(0, 1fr); }
+  .seg > .col.tgt { grid-column: 2; margin-top: 8px; }
+  .detail { grid-column: 2; }
+}
+
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); padding: 0; width: min(680px, calc(100% - 32px)); max-height: calc(100% - 48px); }
+dialog::backdrop { background: rgba(10, 16, 22, .45); }
+.dlg { display: flex; flex-direction: column; max-height: inherit; }
+.dlg h2 { margin: 0; font-size: 18px; text-wrap: balance; }
+.dlg header, .dlg footer { padding: 14px 18px; display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.dlg header { border-bottom: 1px solid var(--line); }
+.dlg footer { border-top: 1px solid var(--line); justify-content: flex-end; }
+.dlg .body { padding: 14px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.dlg .body p { margin: 0; }
+.dlg dl { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.dlg dt { font-weight: 600; font-size: 14px; color: var(--muted); }
+.dlg dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 65ch; }
+.field { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.field input { min-height: 40px; width: 90px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); }
+.hint { color: var(--muted); font-size: 14px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 8px; font-size: 15px; max-width: calc(100% - 32px); z-index: 10; }
+@media (prefers-reduced-motion: no-preference) { .progress > i { transition: width .2s; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <div class="bar-row">
+      <div class="file">
+        <div class="file-name" id="fileName">未打开文件</div>
+        <div class="file-meta" id="fileMeta"></div>
+        <div class="progress" aria-hidden="true"><i id="progressBar"></i></div>
+      </div>
+      <button class="btn" id="btnOpen" type="button">打开文件</button>
+      <button class="btn" id="btnGloss" type="button">术语表</button>
+      <button class="btn" id="btnInfo" type="button">项目说明</button>
+      <button class="btn primary" id="btnExport" type="button">导出</button>
+    </div>
+    <div class="bar-row">
+      <input class="search" id="search" type="search" placeholder="搜索原文、译文或 key" autocomplete="off">
+      <div class="seg-control" id="filters" role="group" aria-label="筛选句段">
+        <button type="button" data-f="all" aria-pressed="true">全部<span class="n"></span></button>
+        <button type="button" data-f="todo" aria-pressed="false">未确认<span class="n"></span></button>
+        <button type="button" data-f="mod" aria-pressed="false">已修改<span class="n"></span></button>
+        <button type="button" data-f="warn" aria-pressed="false">有提示<span class="n"></span></button>
+      </div>
+      <button class="btn" id="btnReplace" type="button" aria-expanded="false">替换</button>
+    </div>
+    <div class="bar-row replace-row" id="replaceRow" hidden>
+      <input id="repFind" type="text" placeholder="查找译文中的文字" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input id="repWith" type="text" placeholder="替换为" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn" id="btnRepAll" type="button">在当前列表中全部替换</button>
+    </div>
+  </div>
+  <div class="notice" id="demoNotice" hidden><span>现在显示的是内置示例文件，内容是虚构的。打开你自己的 mxliff 开始工作，文件只在这台设备上处理。</span><button class="btn small" type="button" id="btnOpen2">打开文件</button></div>
+  <div class="list" id="list"></div>
+</div>
+
+<input type="file" id="fileInput" hidden>
+<input type="file" id="glossInput" hidden>
+
+<dialog id="dlgInfo"><div class="dlg">
+  <header><h2>项目说明</h2><button class="btn small" type="button" data-close>关闭</button></header>
+  <div class="body" id="infoBody"></div>
+</div></dialog>
+
+<dialog id="dlgGloss"><div class="dlg">
+  <header><h2>术语表</h2><button class="btn small" type="button" data-close>关闭</button></header>
+  <div class="body">
+    <p id="glossState"></p>
+    <p class="hint">支持 CSV、TSV（第一列原文，第二列译文，第三列备注可选）和 TBX。Excel 表格请先另存为 CSV。术语表保存在这台设备的浏览器里，不会上传。</p>
+  </div>
+  <footer><button class="btn" type="button" id="btnGlossClear">清除</button><button class="btn primary" type="button" id="btnGlossLoad">载入术语表</button></footer>
+</div></dialog>
+
+<dialog id="dlgExport"><div class="dlg">
+  <header><h2>导出</h2><button class="btn small" type="button" data-close>关闭</button></header>
+  <div class="body">
+    <p id="exportSummary"></p>
+    <div class="field"><label for="confValue">确认句段时写入的 m:confirmed 值</label><input id="confValue" type="text" inputmode="numeric" autocomplete="off"></div>
+    <p class="hint" id="confHint"></p>
+    <p class="hint" id="exportHow"></p>
+  </div>
+  <footer><button class="btn" type="button" id="btnCopyAll">复制全文</button><button class="btn" type="button" id="btnZip" hidden>存为 zip</button><button class="btn" type="button" id="btnShare" hidden>存到“文件”</button><button class="btn primary" type="button" id="btnDoExport">保存文件</button></footer>
+</div></dialog>
+
+<dialog id="dlgAsk"><div class="dlg">
+  <header><h2 id="askTitle"></h2></header>
+  <div class="body"><p id="askText"></p></div>
+  <footer><button class="btn" type="button" id="askNo">取消</button><button class="btn primary" type="button" id="askYes">继续</button></footer>
+</div></dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script id="core">
+/* Core: text-level MXLIFF parsing and write-back. Only <target> content and m:confirmed are ever rewritten. */
+const Core = (() => {
+  const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  function decode(s) {
+    return s.replace(/&(#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (m, e) => {
+      if (e[0] === '#') {
+        const cp = (e[1] === 'x' || e[1] === 'X') ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+        try { return String.fromCodePoint(cp); } catch (_) { return m; }
+      }
+      return Object.prototype.hasOwnProperty.call(NAMED, e) ? NAMED[e] : m;
+    });
+  }
+  function encode(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\r/g, '&#13;').replace(/\n/g, '&#10;').replace(/\t/g, '&#9;');
+  }
+  function attr(attrs, name) {
+    const re = new RegExp('(^|\\s)' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*=\\s*(["\'])([\\s\\S]*?)\\2');
+    const m = re.exec(attrs);
+    if (!m) return null;
+    const valStart = m.index + m[0].length - 1 - m[3].length;
+    return { value: decode(m[3]), start: valStart, end: valStart + m[3].length };
+  }
+  function parse(text) {
+    const rootM = /<xliff\b([^>]*)>/.exec(text);
+    if (!rootM) throw new Error('这不是 XLIFF/MXLIFF 文件：找不到 <xliff> 根元素。');
+    const fileM = /<file\b([^>]*)>/.exec(text);
+    const fa = fileM ? fileM[1] : '';
+    const val = (a, n) => { const r = attr(a, n); return r ? r.value : ''; };
+    const info = {
+      level: val(rootM[1], 'm:level'), original: val(fa, 'original'),
+      srcLang: val(fa, 'source-language'), tgtLang: val(fa, 'target-language'),
+      jobUid: val(fa, 'm:job-uid'), taskId: val(fa, 'm:task-id')
+    };
+    const units = [];
+    const openRe = /<trans-unit\b([^>]*)>/g;
+    let m, prevEnd = 0, prevCtx = {};
+    while ((m = openRe.exec(text))) {
+      const openStart = m.index, attrs = m[1], attrsStart = openStart + '<trans-unit'.length;
+      const bodyStart = openStart + m[0].length;
+      const closeAt = text.indexOf('</trans-unit>', bodyStart);
+      if (closeAt < 0) throw new Error('文件结构不完整：有一个 <trans-unit> 没有结束标签。');
+      const body = text.slice(bodyStart, closeAt);
+      // context of the enclosing group
+      let ctx = prevCtx;
+      const g = text.lastIndexOf('<group', openStart);
+      if (g >= prevEnd) {
+        ctx = {};
+        const seg = text.slice(g, openStart);
+        const cre = /<context(?=[\s>])([^>]*)>([\s\S]*?)<\/context>/g; let c;
+        while ((c = cre.exec(seg))) { const t = attr(c[1], 'context-type'); if (t) ctx[t.value] = decode(c[2]); }
+      }
+      // alt-trans ranges are skipped when looking for this unit's own source/target
+      const alts = [], altRanges = [];
+      const are = /<alt-trans\b([^>]*)>([\s\S]*?)<\/alt-trans>/g; let a;
+      while ((a = are.exec(body))) {
+        altRanges.push([a.index, a.index + a[0].length]);
+        const tm = /<target\b[^>]*>([\s\S]*?)<\/target>/.exec(a[2]);
+        const o = attr(a[1], 'origin'), q = attr(a[1], 'match-quality');
+        if (tm && tm[1].indexOf('<') < 0 && decode(tm[1]).trim()) alts.push({ origin: o ? o.value : '', quality: q ? q.value : '', text: decode(tm[1]) });
+      }
+      const inAlt = i => altRanges.some(r => i >= r[0] && i < r[1]);
+      const find = re => { let x; re.lastIndex = 0; while ((x = re.exec(body))) { if (!inAlt(x.index)) return x; } return null; };
+      const sm = find(/<source\b[^>]*?(?:\/>|>([\s\S]*?)<\/source>)/g);
+      const tm = find(/<target\b([^>]*?)(?:\/>|>([\s\S]*?)<\/target>)/g);
+      const u = {
+        idx: units.length, id: val(attrs, 'id'), attrsStart, attrsLen: attrs.length,
+        src: sm && sm[1] != null ? decode(sm[1]) : '', key: ctx['x-key'] || '', note: ctx['x-key-note'] || '',
+        locked: val(attrs, 'm:locked') === 'true', score: val(attrs, 'm:score'), origin: val(attrs, 'm:trans-origin'),
+        alts, readonly: ''
+      };
+      const conf = attr(attrs, 'm:confirmed');
+      u.confOrig = conf ? conf.value : null;
+      u.confRange = conf ? [attrsStart + conf.start, attrsStart + conf.end] : null;
+      if (tm) {
+        const abs = bodyStart + tm.index;
+        if (tm[2] != null) {
+          const innerStart = abs + tm[0].length - '</target>'.length - tm[2].length;
+          u.tgtKind = 'full'; u.tgtRange = [innerStart, innerStart + tm[2].length]; u.tgtOrig = decode(tm[2]);
+          if (tm[2].indexOf('<') >= 0) u.readonly = '译文里含有内嵌 XML 元素，为保证结构安全不在这里编辑';
+        } else {
+          u.tgtKind = 'self'; u.tgtRange = [abs, abs + tm[0].length]; u.tgtAttrs = tm[1].replace(/\s+$/, ''); u.tgtOrig = '';
+        }
+      } else if (sm) {
+        const p = bodyStart + sm.index + sm[0].length;
+        u.tgtKind = 'none'; u.tgtRange = [p, p]; u.tgtOrig = '';
+      } else {
+        u.tgtKind = 'none'; u.tgtRange = null; u.tgtOrig = ''; u.readonly = '这个句段没有原文';
+      }
+      if (sm && sm[1] != null && sm[1].indexOf('<') >= 0) u.readonly = u.readonly || '原文里含有内嵌 XML 元素，为保证结构安全不在这里编辑';
+      if (u.locked) u.readonly = u.readonly || '句段已锁定';
+      units.push(u);
+      prevEnd = closeAt; prevCtx = ctx; openRe.lastIndex = closeAt;
+    }
+    return { info, units };
+  }
+  const norm = s => s.replace(/\r\n?/g, '\n');
+  /* edits: Map(idx -> {t?: string, c?: string}). Returns the new file text. */
+  function build(text, units, edits) {
+    const reps = [];
+    edits.forEach((e, idx) => {
+      const u = units[idx]; if (!u) return;
+      if (e.t != null && u.tgtRange && !u.readonly && norm(e.t) !== norm(u.tgtOrig)) {
+        const enc = encode(e.t);
+        if (u.tgtKind === 'full') reps.push([u.tgtRange[0], u.tgtRange[1], enc]);
+        else if (u.tgtKind === 'self') reps.push([u.tgtRange[0], u.tgtRange[1], '<target' + u.tgtAttrs + '>' + enc + '</target>']);
+        else reps.push([u.tgtRange[0], u.tgtRange[1], '\n<target>' + enc + '</target>']);
+      }
+      if (e.c != null && e.c !== u.confOrig) {
+        if (u.confRange) reps.push([u.confRange[0], u.confRange[1], encode(e.c)]);
+        else { const p = u.attrsStart + u.attrsLen; reps.push([p, p, ' m:confirmed="' + encode(e.c) + '"']); }
+      }
+    });
+    reps.sort((a, b) => a[0] - b[0]);
+    const out = []; let pos = 0;
+    for (const r of reps) { out.push(text.slice(pos, r[0]), r[2]); pos = r[1]; }
+    out.push(text.slice(pos));
+    return out.join('');
+  }
+  const TAG_RE = /\{\d+>|<\d+\}|\{\d+\}|\{[a-z^_]{1,2}>|<[a-z^_]{1,2}\}/g;
+  const tags = s => s.match(TAG_RE) || [];
+  function tagDiff(src, tgt) {
+    const count = new Map();
+    for (const t of tags(src)) count.set(t, (count.get(t) || 0) + 1);
+    for (const t of tags(tgt)) count.set(t, (count.get(t) || 0) - 1);
+    const missing = [], extra = [];
+    count.forEach((n, t) => { if (n > 0) missing.push(t); else if (n < 0) extra.push(t); });
+    return { missing, extra };
+  }
+  function parseNote(note) {
+    const parts = note.split(/【([^】]+)】/);
+    if (parts.length < 3) return note.trim() ? [{ k: '备注', v: note.trim() }] : [];
+    const out = [];
+    for (let i = 1; i < parts.length; i += 2) out.push({ k: parts[i].trim(), v: (parts[i + 1] || '').trim() });
+    return out;
+  }
+  const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  /* A one-file, uncompressed zip. Returns an array of parts for a Blob. */
+  function zipParts(name, u8, date) {
+    const nb = new TextEncoder().encode(name), crc = crc32(u8), n = u8.length, d = date || new Date();
+    const dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    const tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, tm, true); lh.setUint16(12, dt, true); lh.setUint32(14, crc, true); lh.setUint32(18, n, true); lh.setUint32(22, n, true);
+    lh.setUint16(26, nb.length, true); lh.setUint16(28, 0, true);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true); cd.setUint16(10, 0, true);
+    cd.setUint16(12, tm, true); cd.setUint16(14, dt, true); cd.setUint32(16, crc, true); cd.setUint32(20, n, true); cd.setUint32(24, n, true);
+    cd.setUint16(28, nb.length, true); cd.setUint32(42, 0, true);
+    const eo = new DataView(new ArrayBuffer(22));
+    eo.setUint32(0, 0x06054b50, true); eo.setUint16(8, 1, true); eo.setUint16(10, 1, true);
+    eo.setUint32(12, 46 + nb.length, true); eo.setUint32(16, 30 + nb.length + n, true);
+    return [lh.buffer, nb, u8, cd.buffer, nb, eo.buffer];
+  }
+  return { decode, encode, parse, build, norm, tags, tagDiff, parseNote, zipParts, crc32 };
+})();
+if (typeof module !== 'undefined') module.exports = Core;
+</script>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const PAGE = 60;
+  const CJK_PUNCT = /[，。！？；：“”‘’（）【】《》、…—]/;
+
+  const S = {
+    name: '', text: '', info: null, units: [], edits: new Map(), demo: false,
+    filter: 'all', query: '', confValue: '1', common: [], commonKeys: new Set(),
+    gloss: null, glossIdx: null, visible: [], rendered: 0, open: new Set()
+  };
+
+  /* ---------- storage (IndexedDB, best effort) ---------- */
+  const store = (() => {
+    let dbp = null;
+    const open = () => dbp || (dbp = new Promise((res, rej) => {
+      try {
+        const r = indexedDB.open('mxliff-editor', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('kv');
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      } catch (e) { rej(e); }
+    }));
+    const tx = async (mode, fn) => {
+      const db = await open();
+      return new Promise((res, rej) => { const t = db.transaction('kv', mode); const q = fn(t.objectStore('kv')); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); });
+    };
+    return {
+      get: k => tx('readonly', s => s.get(k)).catch(() => undefined),
+      set: (k, v) => tx('readwrite', s => s.put(v, k)).catch(() => false),
+      del: k => tx('readwrite', s => s.delete(k)).catch(() => false)
+    };
+  })();
+  let saveTimer = 0, ready = Promise.resolve();
+  const LS_KEY = 'mxliff-editor-edits';
+  const flush = () => {
+    clearTimeout(saveTimer); if (S.demo) return;
+    const snap = { name: S.name, edits: [...S.edits], confValue: S.confValue, at: Date.now() };
+    try { localStorage.setItem(LS_KEY, JSON.stringify(snap)); } catch (_) { /* quota or blocked: IndexedDB below still holds it */ }
+    ready = ready.then(() => store.set('edits', snap));
+  };
+  function saveEdits() {
+    if (S.demo) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, 400);
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+  window.addEventListener('pagehide', flush);
+
+  /* ---------- helpers ---------- */
+  let toastTimer = 0;
+  function toast(msg, ms) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 3200); }
+  function ask(title, text, yes) {
+    return new Promise(res => {
+      $('askTitle').textContent = title; $('askText').textContent = text; $('askYes').textContent = yes || '继续';
+      const d = $('dlgAsk'); const done = v => { d.close(); $('askYes').onclick = $('askNo').onclick = null; res(v); };
+      $('askYes').onclick = () => done(true); $('askNo').onclick = () => done(false); d.oncancel = () => done(false);
+      d.showModal();
+    });
+  }
+  const tgtOf = u => { const e = S.edits.get(u.idx); return e && e.t != null ? e.t : u.tgtOrig; };
+  const confOf = u => { const e = S.edits.get(u.idx); return e && e.c != null ? e.c : u.confOrig; };
+  const isConf = u => { const c = confOf(u); return !!c && c !== '0'; };
+  const isMod = u => { const e = S.edits.get(u.idx); return !!e && ((e.t != null && Core.norm(e.t) !== Core.norm(u.tgtOrig)) || (e.c != null && e.c !== u.confOrig)); };
+  function setEdit(u, patch) {
+    const e = Object.assign({}, S.edits.get(u.idx), patch);
+    if (e.t != null && Core.norm(e.t) === Core.norm(u.tgtOrig)) delete e.t;
+    if (e.c != null && e.c === u.confOrig) delete e.c;
+    if (e.t == null && e.c == null) S.edits.delete(u.idx); else S.edits.set(u.idx, e);
+    saveEdits();
+  }
+  function warnings(u) {
+    const w = [], t = tgtOf(u);
+    const d = Core.tagDiff(u.src, t);
+    if (d.missing.length) w.push('缺少标签 ' + d.missing.join(' '));
+    if (d.extra.length) w.push('多出标签 ' + d.extra.join(' '));
+    if (!t.trim() && u.src.trim()) w.push('译文为空');
+    if (/^en/i.test(S.info.tgtLang) && t) { const m = CJK_PUNCT.exec(t); if (m) w.push('含中文标点 ' + m[0]); }
+    return w;
+  }
+
+  /* ---------- glossary ---------- */
+  function buildGlossIdx() {
+    S.glossIdx = null;
+    if (!S.gloss || !S.gloss.entries.length) return;
+    const idx = new Map();
+    for (const e of S.gloss.entries) { const k = e.s.toLowerCase(); if (!k) continue; const a = idx.get(k[0]); if (a) a.push(e); else idx.set(k[0], [e]); }
+    idx.forEach(a => a.sort((x, y) => y.s.length - x.s.length));
+    S.glossIdx = idx;
+  }
+  function matchTerms(src) {
+    if (!S.glossIdx) return [];
+    const low = src.toLowerCase(), out = [];
+    for (let i = 0; i < low.length; i++) {
+      const c = S.glossIdx.get(low[i]); if (!c) continue;
+      for (const e of c) { if (low.startsWith(e.s.toLowerCase(), i)) { out.push({ start: i, end: i + e.s.length, e }); i += e.s.length - 1; break; } }
+    }
+    return out;
+  }
+  function parseDelimited(text) {
+    const first = text.split(/\r?\n/, 1)[0] || '';
+    const delim = first.indexOf('\t') >= 0 ? '\t' : ',';
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"' && cell === '') q = true;
+      else if (ch === delim) { row.push(cell); cell = ''; }
+      else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (ch !== '\r') cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    if (rows.length && /^(source|src|原文|中文|zh|cn|term|术语)/i.test((rows[0][0] || '').trim())) rows.shift();
+    return rows.map(r => ({ s: (r[0] || '').trim(), t: (r[1] || '').trim(), n: (r[2] || '').trim() })).filter(e => e.s && e.t);
+  }
+  function parseTbx(text) {
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('TBX 文件无法解析。');
+    const out = [], sl = (S.info.srcLang || 'zh').slice(0, 2).toLowerCase(), tl = (S.info.tgtLang || 'en').slice(0, 2).toLowerCase();
+    doc.querySelectorAll('termEntry, conceptEntry').forEach(te => {
+      const by = {};
+      te.querySelectorAll('langSet, langSec').forEach(ls => {
+        const lang = (ls.getAttribute('xml:lang') || ls.getAttribute('lang') || '').slice(0, 2).toLowerCase();
+        const terms = [...ls.querySelectorAll('term')].map(t => t.textContent.trim()).filter(Boolean);
+        if (terms.length) by[lang] = terms;
+      });
+      const src = by[sl], tgt = by[tl];
+      if (src && tgt) src.forEach(s => out.push({ s, t: tgt.join(' / '), n: '' }));
+    });
+    return out;
+  }
+  function showGlossState() {
+    $('glossState').textContent = S.gloss ? '已载入：' + S.gloss.name + '，共 ' + S.gloss.entries.length + ' 条。' : '还没有载入术语表。';
+    $('btnGlossClear').hidden = !S.gloss;
+  }
+
+  /* ---------- load ---------- */
+  function load(name, text, edits, demo) {
+    const parsed = Core.parse(text);
+    if (!parsed.units.length) throw new Error('文件里没有找到句段（trans-unit）。');
+    S.name = name; S.text = text; S.info = parsed.info; S.units = parsed.units; S.demo = !!demo;
+    S.edits = new Map(edits || []); S.open = new Set(); S.filter = 'all'; S.query = ''; $('search').value = '';
+    // value written on confirm: the workflow level if known, else the file's most common non-zero value
+    const freq = new Map(); let best = '';
+    for (const u of S.units) if (u.confOrig && u.confOrig !== '0') { const n = (freq.get(u.confOrig) || 0) + 1; freq.set(u.confOrig, n); if (!best || n > freq.get(best)) best = u.confOrig; }
+    S.confValue = best || S.info.level || '1';
+    // note fields shared by every segment are shown once, under 项目说明
+    const fields = S.units.map(u => (u.fields = Core.parseNote(u.note)));
+    S.common = []; S.commonKeys = new Set();
+    if (fields.length > 1) for (const f of fields[0]) {
+      if (fields.every(fs => fs.some(x => x.k === f.k && x.v === f.v))) { S.commonKeys.add(f.k); if (f.v && f.v !== 'None') S.common.push(f); }
+    }
+    $('demoNotice').hidden = !S.demo;
+    $('fileName').textContent = S.demo ? '示例文件' : name;
+    renderList(); updateCounts();
+  }
+  async function openFile(file) {
+    if (!S.demo && S.edits.size && !(await ask('打开新文件？', '当前文件有 ' + S.edits.size + ' 个句段的修改还在草稿里。打开新文件会丢弃这些修改，如果还需要请先导出。', '丢弃并打开'))) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const text = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true }).decode(buf);
+      clearTimeout(saveTimer);
+      load(file.name, text, [], false);
+      try { localStorage.removeItem(LS_KEY); } catch (_) {}
+      ready = ready.then(() => store.del('edits')).then(() => store.set('file', { name: file.name, text }));
+      await ready;
+      toast('已打开，共 ' + S.units.length + ' 个句段');
+    } catch (e) {
+      toast(e instanceof TypeError ? '这个文件不是 UTF-8 编码，无法安全编辑。' : (e.message || '打开失败'), 5000);
+    }
+  }
+
+  /* ---------- list ---------- */
+  function computeVisible() {
+    const q = S.query.trim().toLowerCase();
+    S.visible = S.units.filter(u => {
+      if (S.filter === 'todo' && isConf(u)) return false;
+      if (S.filter === 'mod' && !isMod(u)) return false;
+      if (S.filter === 'warn' && !warnings(u).length) return false;
+      if (q && !(u.src.toLowerCase().includes(q) || tgtOf(u).toLowerCase().includes(q) || u.key.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }
+  let observer = null;
+  function renderList() {
+    computeVisible();
+    const list = $('list'); list.textContent = ''; S.rendered = 0;
+    if (observer) observer.disconnect();
+    if (!S.visible.length) { list.appendChild(el('div', 'empty', '没有符合条件的句段。')); return; }
+    renderMore();
+  }
+  function renderMore() {
+    const list = $('list'); const old = list.querySelector('.more'); if (old) old.remove();
+    const frag = document.createDocumentFragment();
+    const end = Math.min(S.rendered + PAGE, S.visible.length);
+    for (let i = S.rendered; i < end; i++) frag.appendChild(card(S.visible[i]));
+    S.rendered = end; list.appendChild(frag);
+    if (S.rendered < S.visible.length) {
+      const b = el('button', 'btn more', '显示后面的句段（还有 ' + (S.visible.length - S.rendered) + ' 个）'); b.type = 'button'; b.onclick = renderMore; list.appendChild(b);
+      if ('IntersectionObserver' in window) { observer = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { observer.disconnect(); renderMore(); } }, { root: list, rootMargin: '600px' }); observer.observe(b); }
+    }
+  }
+  function renderSrc(u) {
+    const box = el('div', 'src'); box.lang = S.info.srcLang || '';
+    const marks = [];
+    let m; const re = /\{\d+>|<\d+\}|\{\d+\}|\{[a-z^_]{1,2}>|<[a-z^_]{1,2}\}|\n/g;
+    while ((m = re.exec(u.src))) marks.push({ start: m.index, end: m.index + m[0].length, type: m[0] === '\n' ? 'nl' : 'tag' });
+    for (const t of matchTerms(u.src)) if (!marks.some(k => t.start < k.end && k.start < t.end)) marks.push({ start: t.start, end: t.end, type: 'term' });
+    marks.sort((a, b) => a.start - b.start);
+    let pos = 0;
+    for (const k of marks) {
+      if (k.start > pos) box.appendChild(document.createTextNode(u.src.slice(pos, k.start)));
+      if (k.type === 'nl') { box.appendChild(el('span', 'nl', '↵')); box.appendChild(document.createTextNode('\n')); }
+      else if (k.type === 'tag') box.appendChild(el('span', 'tagm', u.src.slice(k.start, k.end)));
+      else box.appendChild(el('mark', '', u.src.slice(k.start, k.end)));
+      pos = k.end;
+    }
+    if (pos < u.src.length) box.appendChild(document.createTextNode(u.src.slice(pos)));
+    return box;
+  }
+  function insertAt(ta, text) {
+    const s = ta.selectionStart != null ? ta.selectionStart : ta.value.length, e = ta.selectionEnd != null ? ta.selectionEnd : s;
+    ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
+    ta.selectionStart = ta.selectionEnd = s + text.length; ta.focus();
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function card(u) {
+    const c = el('div', 'seg'); c.dataset.idx = u.idx;
+    const gut = el('div', 'gutter');
+    gut.appendChild(el('div', 'num', String(u.idx + 1)));
+    const cb = el('button', 'confirm', '✓'); cb.type = 'button'; cb.disabled = u.locked;
+    cb.onclick = () => toggleConfirm(u, c); gut.appendChild(cb);
+    c.appendChild(gut);
+
+    const sc = el('div', 'col'); sc.appendChild(renderSrc(u));
+    const ta = el('textarea'); ta.id = 't' + u.idx;
+    const terms = matchTerms(u.src);
+    if (terms.length) {
+      const row = el('div', 'chips'); const seen = new Set();
+      for (const t of terms) {
+        if (seen.has(t.e.s)) continue; seen.add(t.e.s);
+        const b = el('button', 'chip term', t.e.s + ' → ' + t.e.t + (t.e.n ? '（' + t.e.n + '）' : '')); b.type = 'button'; b.dataset.t = t.e.t;
+        b.title = '点一下把译法插入译文'; b.disabled = !!u.readonly; b.onclick = () => insertAt(ta, t.e.t.split(' / ')[0]);
+        row.appendChild(b);
+      }
+      sc.appendChild(row);
+    }
+    c.appendChild(sc);
+
+    const tc = el('div', 'col tgt');
+    const srcTags = [...new Set(Core.tags(u.src))];
+    if (srcTags.length && !u.readonly) {
+      const row = el('div', 'chips');
+      for (const t of srcTags) { const b = el('button', 'chip tagbtn', t); b.type = 'button'; b.title = '插入这个标签'; b.onclick = () => insertAt(ta, t); row.appendChild(b); }
+      tc.appendChild(row);
+    }
+    const grow = el('div', 'grow');
+    ta.rows = 1; ta.value = tgtOf(u); ta.lang = S.info.tgtLang || ''; ta.setAttribute('aria-label', '第 ' + (u.idx + 1) + ' 句译文');
+    ta.autocapitalize = 'sentences'; ta.readOnly = !!u.readonly;
+    grow.dataset.v = ta.value; grow.appendChild(ta); tc.appendChild(grow);
+    const meta = el('div', 'meta');
+    const chips = el('div', 'chips'); meta.appendChild(chips);
+    const tools = el('div', 'tools');
+    const mk = (label, fn) => { const b = el('button', 'btn small quiet', label); b.type = 'button'; b.onclick = fn; tools.appendChild(b); return b; };
+    if (!u.readonly) mk('复制原文', () => { ta.value = u.src; ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus(); });
+    const revert = mk('还原', () => { S.edits.delete(u.idx); saveEdits(); ta.value = u.tgtOrig; grow.dataset.v = ta.value; refreshCard(u, c); updateCounts(); });
+    const det = mk('详情', () => { if (S.open.has(u.idx)) S.open.delete(u.idx); else S.open.add(u.idx); renderDetail(u, c, ta); });
+    det.setAttribute('aria-expanded', 'false');
+    meta.appendChild(tools); tc.appendChild(meta); c.appendChild(tc);
+    c._parts = { ta, grow, chips, revert, det };
+    ta.addEventListener('input', () => { grow.dataset.v = ta.value; setEdit(u, { t: ta.value }); refreshCard(u, c); updateCounts(); });
+    ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!isConf(u)) toggleConfirm(u, c); focusNext(u); } });
+    refreshCard(u, c);
+    if (S.open.has(u.idx)) renderDetail(u, c, ta);
+    return c;
+  }
+  function refreshCard(u, c) {
+    const p = c._parts, conf = isConf(u), mod = isMod(u);
+    c.classList.toggle('confirmed', conf); c.classList.toggle('modified', mod); c.classList.toggle('locked', !!u.readonly);
+    const cb = c.querySelector('.confirm'); cb.setAttribute('aria-pressed', String(conf)); cb.setAttribute('aria-label', conf ? '已确认，点一下取消确认' : '未确认，点一下确认');
+    p.revert.hidden = !mod;
+    const chips = p.chips; chips.textContent = '';
+    const t = tgtOf(u);
+    chips.appendChild(el('span', 'count', [...t].length + ' 字符'));
+    if (mod) chips.appendChild(el('span', 'chip info', '已修改'));
+    if (u.readonly) chips.appendChild(el('span', 'chip', u.readonly));
+    if (u.origin && u.origin !== 'null') chips.appendChild(el('span', 'chip', u.origin.toUpperCase() + (u.score && u.score !== '0' ? ' ' + Math.round(parseFloat(u.score) * (parseFloat(u.score) <= 1.01 ? 100 : 1)) + '%' : '')));
+    for (const w of warnings(u)) chips.appendChild(el('span', 'chip warn', w));
+    const low = t.toLowerCase();
+    c.querySelectorAll('.chip.term').forEach(b => b.classList.toggle('used', b.dataset.t.split(' / ').some(x => low.includes(x.toLowerCase()))));
+  }
+  function renderDetail(u, c, ta) {
+    const old = c.querySelector('.detail'); if (old) old.remove();
+    const open = S.open.has(u.idx); c._parts.det.setAttribute('aria-expanded', String(open)); c._parts.det.textContent = open ? '收起' : '详情';
+    if (!open) return;
+    const d = el('div', 'detail'); const dl = el('dl');
+    const add = (k, v, cls) => { dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', cls || '', v)); };
+    if (u.key) add('key', u.key, 'key');
+    for (const f of u.fields) if (!S.commonKeys.has(f.k) && f.v && f.v !== 'None') add(f.k, f.v);
+    add('确认状态', 'm:confirmed = ' + (confOf(u) == null ? '（无）' : confOf(u)) + (u.locked ? '，已锁定' : ''));
+    d.appendChild(dl);
+    for (const a of u.alts) {
+      const row = el('div', 'alt');
+      row.appendChild(el('span', 'chip info', (a.origin === 'machine-trans' ? 'MT' : a.origin === 'memsource-tm' ? 'TM' : a.origin || '匹配') + (a.quality ? ' ' + a.quality : '')));
+      row.appendChild(el('p', '', a.text));
+      if (!u.readonly) { const b = el('button', 'btn small', '使用'); b.type = 'button'; b.onclick = () => { ta.value = a.text; ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus(); }; row.appendChild(b); }
+      d.appendChild(row);
+    }
+    c.appendChild(d);
+  }
+  function toggleConfirm(u, c) {
+    if (u.locked) return;
+    setEdit(u, { c: isConf(u) ? '0' : S.confValue });
+    refreshCard(u, c); updateCounts();
+    if (S.open.has(u.idx)) renderDetail(u, c, c._parts.ta);
+  }
+  function focusNext(u) {
+    const i = S.visible.indexOf(u);
+    for (let j = i + 1; j < S.visible.length; j++) {
+      if (!isConf(S.visible[j]) && !S.visible[j].readonly) {
+        while (S.rendered <= j) renderMore();
+        const t = $('t' + S.visible[j].idx); if (t) { t.focus(); t.scrollIntoView({ block: 'center' }); } return;
+      }
+    }
+    toast('后面没有未确认的句段了');
+  }
+  function updateCounts() {
+    let conf = 0, mod = 0, warn = 0;
+    for (const u of S.units) { if (isConf(u)) conf++; if (isMod(u)) mod++; if (warnings(u).length) warn++; }
+    const n = S.units.length;
+    $('fileMeta').textContent = (S.info.srcLang || '?') + ' → ' + (S.info.tgtLang || '?') + ' · 已确认 ' + conf + ' / ' + n + (mod ? ' · 已修改 ' + mod : '');
+    $('progressBar').style.width = (n ? conf / n * 100 : 0) + '%';
+    const counts = { all: n, todo: n - conf, mod, warn };
+    $('filters').querySelectorAll('button').forEach(b => { b.querySelector('.n').textContent = counts[b.dataset.f]; b.setAttribute('aria-pressed', String(b.dataset.f === S.filter)); });
+  }
+
+  /* ---------- export ---------- */
+  let downloads = null;
+  if (window.claude && typeof window.claude.use === 'function') window.claude.use('downloads').then(d => { downloads = d; }).catch(() => {});
+  function openExport() {
+    let mod = 0; for (const u of S.units) if (isMod(u)) mod++;
+    $('exportSummary').textContent = mod ? '将写回 ' + mod + ' 个句段的修改。其余内容与原文件逐字相同。' : '没有修改，导出的文件与原文件完全相同。';
+    $('confValue').value = S.confValue;
+    $('confHint').textContent = '按 Phrase 的文档，这个值是确认时所在的工作流层级。这个文件的层级是 ' + (S.info.level || '未标明') + '，已确认句段用的是 ' + (S.units.find(u => u.confOrig && u.confOrig !== '0') || { confOrig: '—' }).confOrig + '。一般不用改。';
+    $('btnZip').hidden = !downloads; $('btnDoExport').textContent = downloads ? '存为 txt' : '保存文件';
+    let canShare = false;
+    try { canShare = !downloads && !!navigator.canShare && navigator.canShare({ files: [new File(['x'], S.name, { type: 'text/xml' })] }); } catch (_) {}
+    $('btnShare').hidden = !canShare;
+    $('exportHow').textContent = downloads ? 'txt 的内容与 mxliff 逐字相同，文件名是“原名.mxliff.txt”，在“文件”里把末尾的 .txt 删掉就是 mxliff。也可以存为 zip 后解压，或复制全文粘贴到原文件里。' : canShare ? '“存到‘文件’”会打开系统的分享面板，选“存储到‘文件’”就能挑位置；“保存文件”直接存到“下载”。两种都用原文件名。' : '文件会以原文件名保存到“下载”。';
+    $('dlgExport').showModal();
+  }
+  async function doExport(mode) {
+    const nv = $('confValue').value.trim();
+    if (nv && nv !== '0' && nv !== S.confValue) {
+      const old = S.confValue; S.confValue = nv;
+      S.edits.forEach((e, idx) => { if (e.c === old) setEdit(S.units[idx], { c: nv }); });
+    }
+    let out;
+    try {
+      out = Core.build(S.text, S.units, S.edits);
+      // self-check: the rebuilt file must parse back to exactly what is on screen
+      const back = Core.parse(out);
+      if (back.units.length !== S.units.length) throw new Error('句段数量对不上');
+      for (const u of S.units) {
+        const b = back.units[u.idx];
+        if (Core.norm(b.tgtOrig) !== Core.norm(u.readonly ? u.tgtOrig : tgtOf(u)) || b.src !== u.src || (b.confOrig || null) !== (confOf(u) || null)) throw new Error('第 ' + (u.idx + 1) + ' 句回读不一致');
+      }
+    } catch (e) { toast('导出前自检没有通过（' + e.message + '），文件没有保存。', 6000); return; }
+    const u8 = new TextEncoder().encode(out);
+    try {
+      if (mode === 'copy') {
+        await navigator.clipboard.writeText(out);
+        $('dlgExport').close(); toast('已通过自检，全文已复制'); return;
+      }
+      if (mode === 'share') {
+        await navigator.share({ files: [new File([u8], S.name, { type: 'text/xml' })] });
+        $('dlgExport').close(); toast('已通过自检并交给系统保存'); return;
+      }
+      if (downloads && mode === 'zip') {
+        await downloads.save({ filename: S.name.replace(/\.[^.]*$/, '') + '.zip', data: new Blob(Core.zipParts(S.name, u8)) });
+      } else if (downloads) {
+        await downloads.save({ filename: S.name + '.txt', data: new Blob([u8]) });
+      } else {
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([u8], { type: 'application/octet-stream' })); a.download = S.name;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      }
+      $('dlgExport').close(); toast('已通过自检并保存');
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      toast(mode === 'copy' ? '复制没有成功，请改用保存。' : e && e.code === 'declined' ? '已取消保存。' : '保存失败：' + ((e && (e.message || e.code)) || '未知原因'), 5000);
+    }
+  }
+
+  /* ---------- wiring ---------- */
+  $('btnOpen').onclick = $('btnOpen2').onclick = () => $('fileInput').click();
+  $('fileInput').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) openFile(f); };
+  let searchTimer = 0;
+  $('search').oninput = e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { S.query = e.target.value; renderList(); }, 200); };
+  $('filters').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.filter = b.dataset.f; renderList(); updateCounts(); };
+  $('btnReplace').onclick = () => { const r = $('replaceRow'); r.hidden = !r.hidden; $('btnReplace').setAttribute('aria-expanded', String(!r.hidden)); if (!r.hidden) $('repFind').focus(); };
+  $('btnRepAll').onclick = async () => {
+    const find = $('repFind').value, rep = $('repWith').value; if (!find) { toast('先填要查找的文字'); return; }
+    const hits = S.visible.filter(u => !u.readonly && tgtOf(u).includes(find));
+    if (!hits.length) { toast('当前列表的译文里没有找到“' + find + '”'); return; }
+    if (!(await ask('全部替换？', '将在 ' + hits.length + ' 个句段的译文里把“' + find + '”替换为“' + rep + '”。区分大小写。', '替换'))) return;
+    for (const u of hits) setEdit(u, { t: tgtOf(u).split(find).join(rep) });
+    renderList(); updateCounts(); toast('已替换 ' + hits.length + ' 个句段');
+  };
+  $('btnInfo').onclick = () => {
+    const b = $('infoBody'); b.textContent = '';
+    const dl = el('dl');
+    const add = (k, v) => { const w = el('div'); w.appendChild(el('dt', '', k)); w.appendChild(el('dd', '', v)); dl.appendChild(w); };
+    if (S.info.original) add('原始文件', S.info.original);
+    add('语言', (S.info.srcLang || '?') + ' → ' + (S.info.tgtLang || '?'));
+    if (S.info.level) add('工作流层级', S.info.level);
+    for (const f of S.common) add(f.k, f.v);
+    b.appendChild(dl);
+    if (!S.common.length) b.appendChild(el('p', 'hint', '这个文件没有所有句段共用的备注。每句自己的备注在句段的“详情”里。'));
+    $('dlgInfo').showModal();
+  };
+  $('btnGloss').onclick = () => { showGlossState(); $('dlgGloss').showModal(); };
+  $('btnGlossLoad').onclick = () => $('glossInput').click();
+  $('btnGlossClear').onclick = () => { S.gloss = null; buildGlossIdx(); store.del('gloss'); showGlossState(); renderList(); };
+  $('glossInput').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try {
+      const text = new TextDecoder('utf-8').decode(await f.arrayBuffer()).replace(/^\uFEFF/, '');
+      const entries = /^\s*</.test(text) ? parseTbx(text) : parseDelimited(text);
+      if (!entries.length) throw new Error('没有读到术语。请确认第一列是原文、第二列是译文。');
+      S.gloss = { name: f.name, entries }; buildGlossIdx(); store.set('gloss', S.gloss); showGlossState(); renderList();
+      toast('已载入 ' + entries.length + ' 条术语');
+    } catch (err) { toast(err.message || '术语表读取失败', 5000); }
+  };
+  $('btnExport').onclick = openExport;
+  $('btnDoExport').onclick = () => doExport('file');
+  $('btnZip').onclick = () => doExport('zip');
+  $('btnShare').onclick = () => doExport('share');
+  $('btnCopyAll').onclick = () => doExport('copy');
+  document.querySelectorAll('[data-close]').forEach(b => { b.onclick = () => b.closest('dialog').close(); });
+
+  /* offline: when hosted as a normal site, a service worker keeps the app available without a network */
+  if ('serviceWorker' in navigator && !(window.claude && window.claude.use) && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+  /* ---------- start: restore the last session, else show the built-in example ---------- */
+  function demoText() {
+    const rows = [
+      ['示例_0001', '新版本现已上线\n快来体验全新内容', 'The new version is live\nCome and try the new content', '2'],
+      ['示例_0002', '完成任务可获得 {1>100 枚金币<1}', 'Complete the quest to earn {1>100 gold coins<1}', '2'],
+      ['示例_0003', '活动将于周五结束', 'The event ends on Friday。', '0'],
+      ['示例_0004', '点击此处领取奖励', '', '0']
+    ];
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<xliff xmlns:m="http://www.memsource.com/mxlf/2.0" xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2" m:version="2.17" m:level="2">\n<file original="示例.xlsx" source-language="zh-cn" target-language="en-us" datatype="x-undefined">\n<body>\n' +
+      rows.map((r, i) => '<group id="' + i + '" m:para-id="' + i + '">\n<context-group>\n<context context-type="x-key">' + r[0] + '</context>\n<context context-type="x-key-note">【speaker】None&#10;【translation guide】&#10;这是虚构的示例说明：译文使用英文标点。&#10;</context>\n</context-group>\n<trans-unit id="demo:' + i + '" m:para-id="' + i + '" xml:space="preserve" m:score="0" m:gross-score="0" m:trans-origin="null" m:confirmed="' + r[3] + '" m:locked="false">\n<source>' + Core.encode(r[1]) + '</source>\n<target>' + Core.encode(r[2]) + '</target>\n</trans-unit>\n</group>\n').join('') +
+      '</body>\n</file>\n</xliff>\n';
+  }
+  (async () => {
+    load('示例.mxliff', demoText(), [], true);
+    let [file, edits, gloss] = await Promise.all([store.get('file'), store.get('edits'), store.get('gloss')]);
+    try { const ls = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); if (ls && Array.isArray(ls.edits) && (!edits || (ls.at || 0) > (edits.at || 0))) edits = ls; } catch (_) {}
+    if (gloss && gloss.entries) { S.gloss = gloss; buildGlossIdx(); }
+    if (file && file.text) {
+      try {
+        const mine = edits && edits.name === file.name ? edits : null;
+        load(file.name, file.text, mine ? mine.edits : [], false);
+        if (mine && mine.confValue) S.confValue = mine.confValue;
+        if (mine && mine.edits.length) toast('已恢复上次的草稿：' + mine.edits.length + ' 个句段有修改');
+        return;
+      } catch (_) { /* fall through to the example */ }
+    }
+    if (S.glossIdx) renderList();
+  })();
+})();
+</script>
+</body>
+</html>
